@@ -1,0 +1,8 @@
+# Copy to .dev.vars and fill with DUMMY values for local dev.
+# Never put a real secret here.
+HARNESS_SECRET=dummy-harness-secret-0123456789abcdef
+RESEND_API_KEY=
+MAIL_FROM=no-reply@example.com
+TURNSTILE_SECRET=
+ADMIN_TOKEN=dummy-admin-token-0123456789abcdef
+ENV=development
