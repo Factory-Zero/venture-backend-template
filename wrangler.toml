@@ -1,0 +1,86 @@
+# NOTE: the three `database_id` / `namespace_id` placeholders below
+# (00000000-0000-0000-0000-000000000000/1/2 and 1001/1002/1003) are
+# placeholders. Replace them with real IDs from `wrangler d1 create` and the
+# Cloudflare dashboard's Rate Limiting bindings before deploying - that is
+# the "only the D1 ids replaced" referred to in this template's acceptance
+# criteria.
+
+name = "venture-api"
+main = "build/worker/shim.mjs"
+compatibility_date = "2026-09-01"
+
+[build]
+command = "worker-build --release"
+
+[observability]
+enabled = true
+
+[vars]
+ENV = "development"
+VENTURE_NAME = "venture"
+VENTURE_DOMAIN = "example.com"
+CORS_ORIGINS = "https://example.com"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "venture"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+[[ratelimits]]
+name = "RATE_LIMITER"
+namespace_id = "1001"
+
+[ratelimits.simple]
+limit = 30
+period = 60
+
+[env.staging]
+name = "venture-api-staging"
+
+[env.staging.vars]
+ENV = "staging"
+VENTURE_NAME = "venture"
+VENTURE_DOMAIN = "staging.example.com"
+CORS_ORIGINS = "https://staging.example.com"
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "venture-staging"
+database_id = "00000000-0000-0000-0000-000000000001"
+migrations_dir = "migrations"
+
+[[env.staging.ratelimits]]
+name = "RATE_LIMITER"
+namespace_id = "1002"
+
+[env.staging.ratelimits.simple]
+limit = 30
+period = 60
+
+[env.production]
+name = "venture-api-production"
+
+[env.production.vars]
+ENV = "production"
+VENTURE_NAME = "venture"
+VENTURE_DOMAIN = "example.com"
+CORS_ORIGINS = "https://example.com,https://www.example.com"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "venture-production"
+database_id = "00000000-0000-0000-0000-000000000002"
+migrations_dir = "migrations"
+
+[[env.production.ratelimits]]
+name = "RATE_LIMITER"
+namespace_id = "1003"
+
+[env.production.ratelimits.simple]
+limit = 30
+period = 60
+
+[[env.production.routes]]
+pattern = "api.example.com"
+custom_domain = true

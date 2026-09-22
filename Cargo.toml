@@ -1,0 +1,37 @@
+[package]
+name = "venture-backend-template"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+license = "MIT"
+publish = false
+
+[lib]
+name = "venture_backend_template"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "fz"
+path = "src/fz_main.rs"
+
+[dependencies]
+# NOTE: the issue text asks for crates named `factory0-*`. Those names were
+# never published to crates.io: the upstream project (originally
+# Factory-Zero/harness) renamed itself to Cratefield/harness before it
+# reached crates.io, and every crate was renamed `cratefield-*` in the
+# process. `factory0-*` on crates.io 404s and will never exist. We depend on
+# the real, current crates via git, pinned to a specific commit of
+# https://github.com/Cratefield/harness for reproducibility.
+cratefield-core = { git = "https://github.com/Cratefield/harness", rev = "c00b5b2c7aed0276db0dce8ae7c7db2f9b63d10a", package = "cratefield-core" }
+cratefield-runtime-cloudflare = { git = "https://github.com/Cratefield/harness", rev = "c00b5b2c7aed0276db0dce8ae7c7db2f9b63d10a", package = "cratefield-runtime-cloudflare" }
+cratefield-adapter-resend = { git = "https://github.com/Cratefield/harness", rev = "c00b5b2c7aed0276db0dce8ae7c7db2f9b63d10a", package = "cratefield-adapter-resend" }
+cratefield-adapter-turnstile = { git = "https://github.com/Cratefield/harness", rev = "c00b5b2c7aed0276db0dce8ae7c7db2f9b63d10a", package = "cratefield-adapter-turnstile" }
+cratefield-module-email-signup = { git = "https://github.com/Cratefield/harness", rev = "c00b5b2c7aed0276db0dce8ae7c7db2f9b63d10a", package = "cratefield-module-email-signup" }
+cratefield-module-waitlist = { git = "https://github.com/Cratefield/harness", rev = "c00b5b2c7aed0276db0dce8ae7c7db2f9b63d10a", package = "cratefield-module-waitlist" }
+cratefield-cli = { git = "https://github.com/Cratefield/harness", rev = "c00b5b2c7aed0276db0dce8ae7c7db2f9b63d10a", package = "cratefield-cli" }
+
+worker = { version = "0.8.5", default-features = false, features = ["d1"] }
+async-trait = "0.1.92"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.4.3", default-features = false, features = ["wasm_js"] }
