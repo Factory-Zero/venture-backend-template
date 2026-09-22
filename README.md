@@ -70,6 +70,43 @@ just check      # fmt, clippy -D warnings, test, fz doctor, worker-build
 Requires stable Rust with the `wasm32-unknown-unknown` target,
 [`worker-build`](https://crates.io/crates/worker-build), and wrangler.
 
+## CI/CD
+
+Two GitHub Actions workflows live in `.github/workflows/`:
+
+- **`ci.yml`** — runs on every pull request. `cargo fmt --check`, `cargo
+  clippy --all-targets --all-features -- -D warnings`, `cargo test`,
+  `cargo run --bin fz -- doctor`, then installs and runs `worker-build
+  --release` to make sure the Worker actually builds for `wasm32`. It never
+  runs on `main` or on tags — deploys are `deploy.yml`'s job.
+- **`deploy.yml`** — runs on push. A push to `main` deploys to **staging**
+  automatically. Pushing a `v*` tag deploys to **production**, gated behind
+  a required reviewer (see below). Both jobs apply pending D1 migrations
+  with `wrangler d1 migrations apply DB --env <env> --remote`, deploy with
+  `wrangler deploy --env <env> --var HARNESS_BUILD:<git-sha>`, then run
+  [`smoke.sh`](smoke.sh) against the deployed URL, which checks
+  `/__health`, `/__ready` and a waitlist signup, and fails the job on any
+  unexpected status.
+
+**Cloudflare API token.** Create a scoped token (not your global API key)
+with exactly these permissions:
+
+- Account → Workers Scripts → Edit
+- Account → D1 → Edit
+- Zone → Workers Routes → Edit
+
+**Repo configuration (one-time, by a human).** In Settings → Environments,
+create a `staging` and a `production` environment. Add
+`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as secrets on each. On
+`production`, add a required reviewer so tagged deploys wait for approval
+— this protection rule can't be expressed in the workflow YAML, it's
+configured on the Environment itself.
+
+**Runtime secrets** (`HARNESS_SECRET`, `RESEND_API_KEY`, `TURNSTILE_SECRET`,
+`ADMIN_TOKEN`, ...) are never set from Actions. Set them once by hand with
+`wrangler secret put <NAME> --env production` (and `--env staging` for the
+staging equivalents).
+
 ## Status
 
 Template scaffolding is tracked in the [issues](../../issues). It depends on
