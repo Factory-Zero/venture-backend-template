@@ -45,7 +45,9 @@ jobs:
           command: deploy --env staging --var HARNESS_BUILD:${{ github.sha }}
 
       - name: Smoke test
-        run: tools/smoke.sh "${{ steps.deploy.outputs.deployment-url }}"
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment-url }}
+        run: ./smoke.sh "$DEPLOYMENT_URL"
 
   production:
     name: Deploy production
@@ -83,4 +85,6 @@ jobs:
           command: deploy --env production --var HARNESS_BUILD:${{ github.sha }}
 
       - name: Smoke test
-        run: tools/smoke.sh "${{ steps.deploy.outputs.deployment-url }}"
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment-url }}
+        run: ./smoke.sh "$DEPLOYMENT_URL"
