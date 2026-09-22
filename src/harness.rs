@@ -7,13 +7,11 @@
 //! the Worker's per-request `instance()` in `src/lib.rs` call, keeping the
 //! module list defined in exactly one place.
 //!
-//! The `venture_*`/`cors_origins` helpers below read `std::env::var`, which
-//! works fine when the `fz` binary runs natively (e.g. `migrations
-//! collect`, `doctor`), but is always empty on Cloudflare Workers - Workers
-//! never populates `std::env`, only the `Env` binding (`env.var`/
-//! `env.secret`) is populated there, driven by `wrangler.toml`'s `[vars]`.
-//! The defaults here are intentionally the same values `wrangler.toml`
-//! ships with; if you change one, change the other.
+//! Venture settings (`VENTURE_NAME`, `VENTURE_DOMAIN`, `CORS_ORIGINS`) are
+//! read through [`Settings::from_lookup`], so each caller supplies its own
+//! source: `std::env` for the native `fz` binary, and the Worker `Env`
+//! (`wrangler.toml`'s `[vars]`) at runtime, where `std::env` is always
+//! empty. The defaults match the base `[vars]` in `wrangler.toml`.
 
 use std::sync::Arc;
 
@@ -23,21 +21,34 @@ use cratefield_module_email_signup::EmailSignup;
 use cratefield_module_waitlist::Waitlist;
 use cratefield_runtime_cloudflare::Cloudflare;
 
-fn venture_name() -> String {
-    std::env::var("VENTURE_NAME").unwrap_or_else(|_| "venture".to_owned())
+/// The venture's identity and CORS policy, read from whichever variable
+/// source the caller has.
+pub(crate) struct Settings {
+    pub(crate) name: String,
+    pub(crate) domain: String,
+    pub(crate) cors_origins: Vec<String>,
 }
 
-fn venture_domain() -> String {
-    std::env::var("VENTURE_DOMAIN").unwrap_or_else(|_| "example.com".to_owned())
-}
-
-fn cors_origins() -> Vec<String> {
-    match std::env::var("CORS_ORIGINS") {
-        Ok(value) if !value.is_empty() => value
-            .split(',')
-            .map(|origin| origin.trim().to_owned())
-            .collect(),
-        _ => vec![format!("https://{}", venture_domain())],
+impl Settings {
+    /// Reads the settings through `lookup`, treating a missing or empty
+    /// variable as unset.
+    pub(crate) fn from_lookup(lookup: impl Fn(&str) -> Option<String>) -> Self {
+        let get = |key: &str| lookup(key).filter(|value| !value.is_empty());
+        let name = get("VENTURE_NAME").unwrap_or_else(|| "venture".to_owned());
+        let domain = get("VENTURE_DOMAIN").unwrap_or_else(|| "example.com".to_owned());
+        let cors_origins = match get("CORS_ORIGINS") {
+            Some(value) => value
+                .split(',')
+                .map(|origin| origin.trim().to_owned())
+                .filter(|origin| !origin.is_empty())
+                .collect(),
+            None => vec![format!("https://{domain}")],
+        };
+        Self {
+            name,
+            domain,
+            cors_origins,
+        }
     }
 }
 
@@ -59,15 +70,14 @@ impl Mailer for NoopMailer {
 /// Build the `Harness` for the given runtime. This is the single place the
 /// venture's modules are registered - both `harness()` (used by the `fz`
 /// CLI) and the Worker's per-request instance in `src/lib.rs` call this.
-pub(crate) fn compose(runtime: Cloudflare) -> Harness {
-    let domain = venture_domain();
-    let public_url = format!("https://{domain}");
+pub(crate) fn compose(runtime: Cloudflare, settings: Settings) -> Harness {
+    let public_url = format!("https://{}", settings.domain);
 
     Harness::builder()
         .venture(
-            Venture::new(venture_name(), domain)
+            Venture::new(settings.name, settings.domain)
                 .public_url(public_url.clone())
-                .cors_origins(cors_origins()),
+                .cors_origins(settings.cors_origins),
         )
         .templates(cratefield_module_waitlist::default_templates())
         .templates(cratefield_module_email_signup::default_templates())
@@ -86,5 +96,44 @@ pub fn harness() -> Harness {
         .db("DB")
         .mailer_arc(Arc::new(NoopMailer))
         .rate_limiter("RATE_LIMITER");
-    compose(runtime)
+    compose(
+        runtime,
+        Settings::from_lookup(|key| std::env::var(key).ok()),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Settings;
+
+    fn from(pairs: &[(&str, &str)]) -> Settings {
+        Settings::from_lookup(|key| {
+            pairs
+                .iter()
+                .find(|(k, _)| *k == key)
+                .map(|(_, v)| (*v).to_owned())
+        })
+    }
+
+    #[test]
+    fn the_callers_variables_win_over_the_defaults() {
+        let settings = from(&[
+            ("VENTURE_NAME", "acme"),
+            ("VENTURE_DOMAIN", "staging.acme.dev"),
+            ("CORS_ORIGINS", "https://a.acme.dev, https://b.acme.dev,"),
+        ]);
+        assert_eq!(settings.name, "acme");
+        assert_eq!(settings.domain, "staging.acme.dev");
+        assert_eq!(
+            settings.cors_origins,
+            ["https://a.acme.dev", "https://b.acme.dev"]
+        );
+    }
+
+    #[test]
+    fn missing_or_empty_variables_fall_back_to_the_domain() {
+        let settings = from(&[("VENTURE_DOMAIN", "acme.dev"), ("CORS_ORIGINS", "")]);
+        assert_eq!(settings.name, "venture");
+        assert_eq!(settings.cors_origins, ["https://acme.dev"]);
+    }
 }

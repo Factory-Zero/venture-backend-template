@@ -13,21 +13,19 @@ use cratefield_runtime_cloudflare::{
 pub use harness::harness;
 use worker::{Context, Env, Request, Response, event};
 
+fn settings(env: &Env) -> harness::Settings {
+    harness::Settings::from_lookup(|key| env.var(key).ok().map(|value| value.to_string()))
+}
+
 fn build_captcha(env: &Env) -> Option<Turnstile> {
     let secret = env
         .secret("TURNSTILE_SECRET")
         .ok()
         .map(|secret| secret.to_string())
         .filter(|secret| !secret.is_empty())?;
-    let domain = env
-        .var("VENTURE_DOMAIN")
-        .ok()
-        .map(|value| value.to_string())
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "example.com".to_owned());
     Some(
         Turnstile::new(Arc::new(FetchClient), Arc::new(WorkersClock), secret)
-            .expected_hostname(&domain),
+            .expected_hostname(&settings(env).domain),
     )
 }
 
@@ -69,7 +67,7 @@ fn instance(env: &Env) -> &'static (Harness, Cloudflare) {
         if let Some(captcha) = build_captcha(env) {
             build_runtime = build_runtime.captcha(captcha);
         }
-        let harness = harness::compose(build_runtime);
+        let harness = harness::compose(build_runtime, settings(env));
 
         let mut runtime = Cloudflare::new()
             .db("DB")
