@@ -27,13 +27,13 @@ point. Click **Use this template**, edit one file, and the rest is wiring.
 > adapters. Everything else in the repo is the same for every venture and is
 > kept current by the harness.
 
-Built on the [Factory Zero harness](https://github.com/Factory-Zero/harness)
+Built on the [Cratefield harness](https://github.com/Cratefield/harness)
 (Rust, workers-rs, axum).
 
 ## What you get
 
 ```
-Cargo.toml               depends on factory0-core, the runtime, and the modules you want
+Cargo.toml               depends on cratefield-core, the runtime, and the modules you want
 src/harness.rs           Harness::builder() composition for this venture   ← edit this
 src/lib.rs               #[event(fetch)] / #[event(scheduled)] delegating to the harness
 tests/harness_builds.rs  asserts Harness::build() is Ok; a bad config fails `cargo test`
