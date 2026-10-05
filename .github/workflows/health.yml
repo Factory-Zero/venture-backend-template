@@ -1,0 +1,179 @@
+name: Health
+
+on:
+  schedule:
+    - cron: '23 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      harness_rev:
+        description: >-
+          Harness revision to test against. Leave empty to test the tip of
+          Cratefield/harness main. Set to a revision known to be broken to
+          reproduce the failure path and the drift issue this workflow files.
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: health
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  HARNESS_REPO: https://github.com/Cratefield/harness
+
+jobs:
+  health:
+    name: latest harness · just check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo/rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install just and worker-build
+        run: |
+          cargo install --locked just
+          cargo install --locked worker-build
+
+      - name: Resolve the harness revision under test
+        id: harness
+        shell: bash
+        env:
+          HARNESS_REV: ${{ inputs.harness_rev }}
+        run: |
+          set -euo pipefail
+
+          rev="$HARNESS_REV"
+          if [ -z "$rev" ]; then
+            rev="$(git ls-remote "$HARNESS_REPO" refs/heads/main | cut -f1 || true)"
+          fi
+          if [ -z "$rev" ]; then
+            echo "could not resolve a harness revision to test" >&2
+            exit 1
+          fi
+
+          # The harness tags per crate, so there is no repo-wide version. Prefer
+          # the cratefield-core manifest at the revision under test; the crate
+          # has been spelled both `core` and `cratefield-core` upstream.
+          version=""
+          for path in crates/core/Cargo.toml crates/cratefield-core/Cargo.toml; do
+            manifest="https://raw.githubusercontent.com/Cratefield/harness/$rev/$path"
+            if body="$(curl -fsSL "$manifest" 2>/dev/null || true)"; then
+              version="$(printf '%s\n' "$body" \
+                | sed -n 's/^version = "\([^"]*\)".*/\1/p' \
+                | sed -n '1p')"
+            fi
+            if [ -n "$version" ]; then
+              break
+            fi
+          done
+
+          # No manifest at that revision: fall back to the newest published
+          # cratefield-core tag.
+          if [ -z "$version" ]; then
+            version="$(git ls-remote --tags --refs "$HARNESS_REPO" 'refs/tags/cratefield-core-v*' \
+              | cut -f2 \
+              | sed 's#^refs/tags/cratefield-core-v##' \
+              | sort -V \
+              | tail -n1 || true)"
+          fi
+
+          echo "rev=$rev" >> "$GITHUB_OUTPUT"
+          echo "version=${version:-$rev}" >> "$GITHUB_OUTPUT"
+
+          toml="$(git show HEAD:Cargo.toml)"
+          pinned="$(printf '%s\n' "$toml" \
+            | sed -n 's/.*rev = "\([0-9a-f]\{7,40\}\)".*/\1/p' \
+            | sed -n '1p')"
+          echo "testing harness ${rev} (cratefield-core ${version}); template is pinned at ${pinned}"
+
+      - name: Point Cargo.toml at the harness revision under test
+        shell: bash
+        env:
+          HARNESS_REV: ${{ steps.harness.outputs.rev }}
+        run: |
+          set -euo pipefail
+          rev="$HARNESS_REV"
+          before="$(grep -c 'rev = "' Cargo.toml || true)"
+          sed -i -E "s#(rev = \")[0-9a-f]{7,40}(\")#\1$rev\2#g" Cargo.toml
+          after="$(grep -c "rev = \"$rev\"" Cargo.toml || true)"
+          if [ "$after" -ne "$before" ]; then
+            echo "expected $before pins to move to $rev, found $after" >&2
+            exit 1
+          fi
+          git --no-pager diff --stat -- Cargo.toml
+
+      - name: Re-resolve the harness git group
+        run: cargo update -p cratefield-core
+
+      - name: Guard against a stale lockfile
+        env:
+          HARNESS_REV: ${{ steps.harness.outputs.rev }}
+        run: |
+          set -euo pipefail
+          rev="$HARNESS_REV"
+          if grep -o 'Cratefield/harness?rev=[0-9a-f]*' Cargo.lock | grep -qv "$rev"; then
+            echo "Cargo.lock still pins a harness revision other than $rev" >&2
+            grep -o 'Cratefield/harness?rev=[0-9a-f]*' Cargo.lock | sort -u >&2
+            exit 1
+          fi
+
+      - name: just check
+        id: check
+        run: just check
+
+      - name: Open or update the drift issue
+        # No version means the revision step itself failed (network, upstream
+        # gone). Let the run go red rather than file a misleading issue.
+        if: failure() && steps.harness.outputs.version != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TITLE: Template drift against harness ${{ steps.harness.outputs.version }}
+          REVISION: ${{ steps.harness.outputs.rev }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          FAILED: ${{ steps.check.outcome }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          toml="$(git show HEAD:Cargo.toml)"
+          pinned="$(printf '%s\n' "$toml" \
+            | sed -n 's/.*rev = "\([0-9a-f]\{7,40\}\)".*/\1/p' \
+            | sed -n '1p')"
+
+          # The body lives in a file: a heredoc under a YAML block scalar ends
+          # up indented and breaks silently.
+          tmp="$(mktemp)"
+          sed -e "s|@PINNED@|$pinned|g" \
+              -e "s|@REVISION@|$REVISION|g" \
+              -e "s|@FAILED@|$FAILED|g" \
+              -e "s|@RUN_URL@|$RUN_URL|g" \
+              .github/health/drift-issue.md > "$tmp"
+
+          n="$(gh issue list --state open --limit 1 \
+            --search '"Template drift against harness" in:title' --json number \
+            | grep -o '"number":[0-9]*' | head -n1 | cut -d: -f2 || true)"
+
+          if [ -n "$n" ]; then
+            gh issue edit "$n" --title "$TITLE"
+            gh issue comment "$n" --body-file "$tmp"
+            echo "updated existing drift issue #$n"
+          else
+            gh issue create --title "$TITLE" --body-file "$tmp"
+            echo "filed a new drift issue"
+          fi
+
+          rm -f "$tmp"
