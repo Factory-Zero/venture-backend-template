@@ -115,3 +115,8 @@ the harness reaching milestone M2, when the crates are on crates.io.
 ## License
 
 MIT.
+
+
+## Rate-limit namespace ids (account-wide)
+
+Cloudflare Workers rate-limit `namespace_id`s are account-wide, not per Worker: any two Workers (or environments) on the same Cloudflare account that use the same id share counters. Factory Zero venture template owns the block **3200-3209**; its ids are production/default template ids 3200 (top-level), 3201 (staging), 3202 (production). Pick new ids from an unused number inside this block and check the other ventures' wrangler configs before adding one.

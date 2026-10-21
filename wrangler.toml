@@ -1,5 +1,5 @@
 # NOTE: the three `database_id` / `namespace_id` placeholders below
-# (00000000-0000-0000-0000-000000000000/1/2 and 1001/1002/1003) are
+# (00000000-0000-0000-0000-000000000000/1/2 and the 3200/3201/3202 rate-limit ids) are
 # placeholders. Replace them with real IDs from `wrangler d1 create` and the
 # Cloudflare dashboard's Rate Limiting bindings before deploying - that is
 # the "only the D1 ids replaced" referred to in this template's acceptance
@@ -29,7 +29,7 @@ migrations_dir = "migrations"
 
 [[ratelimits]]
 name = "RATE_LIMITER"
-namespace_id = "1001"
+namespace_id = "3200"
 
 [ratelimits.simple]
 limit = 30
@@ -52,7 +52,7 @@ migrations_dir = "migrations"
 
 [[env.staging.ratelimits]]
 name = "RATE_LIMITER"
-namespace_id = "1002"
+namespace_id = "3201"
 
 [env.staging.ratelimits.simple]
 limit = 30
@@ -75,7 +75,7 @@ migrations_dir = "migrations"
 
 [[env.production.ratelimits]]
 name = "RATE_LIMITER"
-namespace_id = "1003"
+namespace_id = "3202"
 
 [env.production.ratelimits.simple]
 limit = 30
